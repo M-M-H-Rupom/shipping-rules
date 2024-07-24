@@ -39,10 +39,28 @@ add_action('plugins_loaded',function(){
                 'instance-settings-modal',
             );
             $this->init();
-
+            add_filter('woocommerce_shipping_method_add_rate', array($this,'update_cost'), 10, 3);
             add_action( 'woocommerce_update_options_shipping_' . $this->id, array( $this, 'process_admin_options' ) );
         }
-
+        public function update_cost( $rate, $args, $the_rate ){
+                // if( $rate->get_method_id() == $this->id ) {
+                $rate->set_cost( 13 );
+                // }
+                // return $rate;
+                $instance_id = $rate->get_instance_id();
+                $shipping_method = WC_Shipping_Zones::get_shipping_method( $instance_id );
+                $data = $shipping_method->get_post_data();
+                $data['data']['woocommerce_custom_shipping_rate_cost'] = 13;
+                $shipping_method->set_post_data( $data );
+                return $rate;
+                // return array(
+                //     'id'      => $this->get_rate_id(),
+                //     'label'   => $this->title,
+                //     'cost'    => 22,
+                //     'taxes'   => false
+                //     // 'package' => $package,
+                // );
+        }
         /**
          * Init user set variables.
          */
@@ -137,6 +155,7 @@ add_action('plugins_loaded',function(){
             if ( $atts['max_fee'] && $calculated_fee > $atts['max_fee'] ) {
                 $calculated_fee = $atts['max_fee'];
             }
+            return 10;
             return $calculated_fee;
         }
 
@@ -146,76 +165,14 @@ add_action('plugins_loaded',function(){
          * @param array $package Package of items from cart.
          */
         public function calculate_shipping( $package = array() ) {
-            $rate = array(
-                'id'      => $this->get_rate_id(),
-                'label'   => $this->title,
-                'cost'    => 0,
-                'package' => $package,
+            $this->add_rate(
+                array(
+                    'label'   => $this->title,
+                    'cost'    => 21,
+                    'taxes'   => false,
+                    'package' => $package,
+                )
             );
-
-            // Calculate the costs.
-            $has_costs = false; // True when a cost is set. False if all costs are blank strings.
-            $cost      = $this->get_option( 'cost' );
-
-            if ( '' !== $cost ) {
-                $has_costs    = true;
-                $rate['cost'] = $this->evaluate_cost(
-                    $cost,
-                    array(
-                        'qty'  => $this->get_package_item_qty( $package ),
-                        'cost' => $package['contents_cost'],
-                    )
-                );
-            }
-
-            // Add shipping class costs.
-            $shipping_classes = WC()->shipping()->get_shipping_classes();
-
-            if ( ! empty( $shipping_classes ) ) {
-                $found_shipping_classes = $this->find_shipping_classes( $package );
-                $highest_class_cost     = 0;
-
-                foreach ( $found_shipping_classes as $shipping_class => $products ) {
-                    // Also handles BW compatibility when slugs were used instead of ids.
-                    $shipping_class_term = get_term_by( 'slug', $shipping_class, 'product_shipping_class' );
-                    $class_cost_string   = $shipping_class_term && $shipping_class_term->term_id ? $this->get_option( 'class_cost_' . $shipping_class_term->term_id, $this->get_option( 'class_cost_' . $shipping_class, '' ) ) : $this->get_option( 'no_class_cost', '' );
-
-                    if ( '' === $class_cost_string ) {
-                        continue;
-                    }
-
-                    $has_costs  = true;
-                    $class_cost = $this->evaluate_cost(
-                        $class_cost_string,
-                        array(
-                            'qty'  => array_sum( wp_list_pluck( $products, 'quantity' ) ),
-                            'cost' => array_sum( wp_list_pluck( $products, 'line_total' ) ),
-                        )
-                    );
-
-                    if ( 'class' === $this->type ) {
-                        $rate['cost'] += $class_cost;
-                    } else {
-                        $highest_class_cost = $class_cost > $highest_class_cost ? $class_cost : $highest_class_cost;
-                    }
-                }
-
-                if ( 'order' === $this->type && $highest_class_cost ) {
-                    $rate['cost'] += $highest_class_cost;
-                }
-            }
-
-            if ( $has_costs ) {
-                $this->add_rate( $rate );
-            }
-
-            /**
-             * Developers can add additional flat rates based on this one via this action since @version 2.4.
-             *
-             * Previously there were (overly complex) options to add additional rates however this was not user.
-             * friendly and goes against what Flat Rate Shipping was originally intended for.
-             */
-            do_action( 'woocommerce_' . $this->id . '_shipping_add_rate', $this, $rate );
         }
 
         /**
